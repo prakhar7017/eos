@@ -98,6 +98,9 @@ EosResult eos_config_load(EosConfig *cfg, const char *path) {
     Section section = SEC_NONE;
     int pkg_idx = -1;
     int rtos_idx = -1;
+    /* Indent of the `- name:` items in the packages list, so a nested deps
+     * sequence can be told apart from the next package. -1 until seen. */
+    int pkg_item_indent = -1;
 
     while (fgets(line, sizeof(line), fp)) {
         char *nl = strchr(line, '\n');
@@ -116,6 +119,16 @@ EosResult eos_config_load(EosConfig *cfg, const char *path) {
         if (trimmed[0] == '-') {
             char *item = trim(trimmed + 1);
 
+            /* A deps sequence is nested inside its package entry, so a list
+             * item back at (or above) the package-list's own indent is the
+             * next package, not another dependency. Without this every
+             * package after the first one with deps was swallowed as a
+             * dependency of that package. */
+            if (section == SEC_PKG_DEPS && pkg_item_indent >= 0 &&
+                indent <= pkg_item_indent) {
+                section = SEC_PKG_ENTRY;
+            }
+
             if (section == SEC_LAYERS) {
                 if (cfg->layer_count < EOS_MAX_LAYERS) {
                     strncpy(cfg->layers[cfg->layer_count], item, EOS_MAX_PATH - 1);
@@ -128,6 +141,7 @@ EosResult eos_config_load(EosConfig *cfg, const char *path) {
                 if (parse_kv(item, key, sizeof(key), val, sizeof(val)) == 0 &&
                     strcmp(key, "name") == 0) {
                     pkg_idx = cfg->package_count;
+                    pkg_item_indent = indent;
                     if (pkg_idx < EOS_MAX_PACKAGES) {
                         strncpy(cfg->packages[pkg_idx].name, val, EOS_MAX_NAME - 1);
                         cfg->package_count++;
@@ -181,6 +195,12 @@ EosResult eos_config_load(EosConfig *cfg, const char *path) {
             if (strcmp(key, "system") == 0)         { section = SEC_SYSTEM; continue; }
             if (strcmp(key, "docs") == 0)           { section = SEC_DOCS; continue; }
         }
+
+        /* A `key: value` line ends a deps sequence: its entries are plain
+         * scalars, so a mapping line belongs to the package entry again.
+         * Without this, everything after a package's deps list (version,
+         * source, hash, build, ...) was silently dropped. */
+        if (section == SEC_PKG_DEPS) section = SEC_PKG_ENTRY;
 
         /* sub-sections */
         switch (section) {
@@ -279,6 +299,11 @@ EosResult eos_config_load(EosConfig *cfg, const char *path) {
                 cfg->packages[pkg_idx].build_type = eos_build_type_from_str(val);
             }
             if (indent <= 2 && strcmp(key, "options") == 0) { section = SEC_PKG_OPTIONS; continue; }
+            /* `deps:` is a sibling of `build:`, not one of its keys, so at the
+             * package-entry indent it closes the build block. Without this the
+             * dependencies of any package that declared `build:` first were
+             * dropped. */
+            if (indent <= 2 && strcmp(key, "deps") == 0) { section = SEC_PKG_DEPS; continue; }
             if (indent <= 2 && strcmp(key, "version") == 0) {
                 section = SEC_PKG_ENTRY;
                 strncpy(cfg->packages[pkg_idx].version, val, EOS_MAX_NAME - 1);

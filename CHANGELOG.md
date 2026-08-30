@@ -6,10 +6,15 @@
 - **Build:** `cmake -B build/host -DEOS_BUILD_TESTS=ON` failed at configure time. `tests/CMakeLists.txt` declared `test_crypto_aes` and `test_crypto_sha512` twice each, and a duplicate `add_executable`/`add_test` name is a hard CMake error, so no test target could be generated at all.
 - **Build:** `kernel/src/sync.c` and `kernel/src/task.c` did not compile. A merge left `sync.c` referencing both halves of two different priority-inheritance designs: `mtx_recompute_owner_priority()` read a `mtx_t::original_prio` field that no longer exists, while `eos_mutex_lock`/`_unlock`/`_delete` called `task_valid()`, `pi_propagate()` and `g_blocked_on[]`, none of which were defined. `eos_task_set_current_internal()` was defined twice in `task.c` and declared twice in `kernel_internal.h`. The recompute-from-invariant design the kernel documentation describes is restored, which also covers the waiter-timeout case the `original_prio` variant was added for.
 - **Build:** `core/src/log.c` referenced `ENABLE_VIRTUAL_TERMINAL_PROCESSING` unconditionally. Toolchains shipping pre-Windows-10 headers (MinGW.org, older SDKs) do not declare it and failed the build instead of falling back to uncoloured output.
+- **`eos_config_load`:** A package's `deps:` sequence never ended. The next `- name:` entry in the list was consumed as another dependency of the previous package, so every package following one that declared dependencies was lost, and the `version`, `source`, `hash` and `build` keys written after a `deps:` list were silently dropped. A list item back at the package-list indent, or any `key: value` line, now closes the sequence.
+- **`eos_config_load`:** `deps:` written after a `build:` block was ignored, because the build sub-section had no handler for the key. It is now treated as a sibling of `build:`, matching how `options:` and `version:` are already handled there.
 - **`eos_queue_create`:** Size check now uses division so `item_size * capacity` cannot wrap `size_t` on 32-bit targets and overflow the 1024-byte queue store.
 - **`eos_sem_create`:** Reject `initial > max` and `max` values that do not fit in `int32_t`, so the counting-semaphore invariant cannot be created already broken.
 - **`eos_mutex_lock`:** Recursive lock returns `EOS_KERN_FULL` at `uint8_t` saturation instead of wrapping `rec_count` to 0 and leaving the mutex stuck.
 - **`eos_mutex_lock`:** A waiter that times out no longer leaves the mutex owner permanently boosted. The owner's effective priority is recomputed from its base priority and the waiters that remain. A full waiter table returns `EOS_KERN_NO_MEMORY` without applying a boost, since a caller that is never enqueued is never granted the mutex.
+
+### Added
+- `tests/test_config.c` — `test_keys_after_dependencies` covers a package entry whose `deps:` list is followed by further keys and by another package.
 
 ## [3.0.1] - 2026-05-16
 
