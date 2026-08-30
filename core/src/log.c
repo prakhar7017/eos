@@ -10,6 +10,13 @@
 
 #ifdef _WIN32
 #include <windows.h>
+/* Windows 10 1511 added ANSI escape handling to the console. Toolchains
+ * shipping pre-Windows-10 headers (MinGW.org, older SDKs) do not declare the
+ * flag, and the reference to it fails the build rather than falling back to
+ * uncoloured output. The value is fixed by the console API. */
+#ifndef ENABLE_VIRTUAL_TERMINAL_PROCESSING
+#define ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004
+#endif
 #endif
 
 static EosLogLevel g_log_level = EOS_LOG_INFO;
